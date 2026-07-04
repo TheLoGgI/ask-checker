@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -24,6 +25,10 @@ func main() {
 	db, err := database.InitDb(databaseType)
 	if err != nil {
 		log.Fatalf("Could not initialize database: %v", err)
+	}
+
+	if Cfg.Port == "" {
+		log.Fatalf("Port Requried to be configured in ENV")
 	}
 
 	// if err = db.TableInit(); err != nil {
@@ -96,7 +101,12 @@ func main() {
 		json.NewEncoder(w).Encode(resultRow)
 	})
 
-	if err := http.ListenAndServe(":"+Cfg.Port, r); err != nil {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = Cfg.Port
+	}
+
+	if err := http.ListenAndServe(":"+port, r); err != nil {
 		log.Fatalf("HTTP server failed: %v", err)
 	}
 }
