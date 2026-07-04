@@ -1,140 +1,104 @@
 package main
 
 import (
+	"ask-checker/database"
 	"database/sql"
-	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	_ "modernc.org/sqlite"
 )
 
-var globalDB *sql.DB
-
-func init() {
-	db, err := sql.Open("sqlite", "./ask.db")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if err := db.Ping(); err != nil {
-		log.Fatal(err)
-	}
-
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS ask_list (
-		isin TEXT PRIMARY KEY,
-		name TEXT NOT NULL,
-		lei  TEXT NOT NULL
-	)`)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	globalDB = db
-
-	fmt.Println("Database ready")
-}
-
 // func extractData(db *sql.DB) {
 // 	var datasetURL = "https://skat.dk/media/r1dn5su0/maj-2026-abis-liste-til-offentliggoerelse-2021-2026.xlsx"
 
 // }
 
-func migrate_csv() {
-	var csvFilename = "maj-2026.csv"
-	file, err := os.Open(csvFilename)
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
-	defer file.Close()
-
-	reader := csv.NewReader(file)
-	records, err := reader.ReadAll()
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
-
-	var insertCount int
-	for i, record := range records {
-		if i == 0 {
-			continue // skip header row
-		}
-		var ISINcode = record[1]
-		var name = record[5]
-		var lei = record[4]
-
-		_, err := globalDB.Exec(
-			`INSERT OR IGNORE INTO ask_list (isin, name, lei) VALUES (?, ?, ?)`,
-			ISINcode, name, lei,
-		)
-		if err != nil {
-			log.Printf("Row %d: %v", i, err)
-		} else {
-			insertCount++
-		}
-	}
-	fmt.Printf("Migration complete - inserted %d records\n", insertCount)
-}
-
 func main() {
+	databaseType := Cfg.Database
+	db, err := database.InitDb(databaseType)
+	if err != nil {
+		log.Fatalf("Could not initialize database: %v", err)
+	}
 
+	if err = db.TableInit(); err != nil {
+		log.Fatal("Database could not create table")
+	}
+
+	fmt.Println("Database ready")
 	fmt.Println("ASK Checker Running!")
 
-	migrate_csv()
+	// if databaseType == "postgres" {
+	// 	migrate.MigratePG_csv(db)
+	// } else {
+	// 	migrate.MigrateSQLite_csv(db)
+	// }
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Hello World!"))
+
+	// Liveness endpoint for load balancers and container orchestration probes.
+	r.Get("/livez", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
 	})
 
-	r.Get("/ask", func(w http.ResponseWriter, r *http.Request) {
+	// Readiness endpoint ensures dependencies are available before serving traffic.
+	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		if err := db.Ping(); err != nil {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
+
+	r.Get("/search", func(w http.ResponseWriter, r *http.Request) {
 
 		var query = r.URL.Query()
 		var isin = query.Get("isin")
 		if isin == "" {
 			isin = query.Get("isni") // fallback for legacy param name
 		}
+
 		log.Printf("Searching for ISIN: '%s'", isin)
 		if isin == "" {
 			http.Error(w, "Missing isin parameter", http.StatusBadRequest)
 			return
 		}
+
 		// var lei = query.Get("lei")
 		// var tickerCode = query.Get("ticker")
+		var resultRow ask
+		selectSQL := "SELECT isin, name FROM ask_checker WHERE isin = ?"
+		if databaseType == "postgres" {
+			selectSQL = "SELECT isin, name FROM ask_checker WHERE isin = $1"
+		}
 
-		rows, err := globalDB.Query("SELECT isin, name FROM ask_list WHERE isin = ? LIMIT 1", isin)
+		err := db.FindOne(selectSQL, isin).Scan(&resultRow.Isni, &resultRow.Name)
 		if err != nil {
 			log.Printf("Error: %v", err)
-			http.Error(w, "Database error", http.StatusInternalServerError)
-			return
-		}
-		defer rows.Close()
-
-		var askStruct ask
-		if !rows.Next() {
-			log.Printf("No rows found for ISIN: '%s'", isin)
-			http.Error(w, "Not found", http.StatusNotFound)
-			return
-		}
-		if err := rows.Scan(&askStruct.Isni, &askStruct.Name); err != nil {
-			log.Printf("Scan error: %v", err)
-			http.Error(w, "Scan error", http.StatusInternalServerError)
+			if errors.Is(err, sql.ErrNoRows) {
+				http.Error(w, "Not Found", http.StatusNotFound)
+			} else {
+				http.Error(w, "Database error", http.StatusInternalServerError)
+			}
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(askStruct)
+		json.NewEncoder(w).Encode(resultRow)
 	})
 
-	http.ListenAndServe(":3000", r)
+	if err := http.ListenAndServe(":"+Cfg.Port, r); err != nil {
+		log.Fatalf("HTTP server failed: %v", err)
+	}
 }
 
 type ask struct {
