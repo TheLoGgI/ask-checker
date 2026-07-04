@@ -26,9 +26,9 @@ func main() {
 		log.Fatalf("Could not initialize database: %v", err)
 	}
 
-	if err = db.TableInit(); err != nil {
-		log.Fatal("Database could not create table")
-	}
+	// if err = db.TableInit(); err != nil {
+	// 	log.Fatalf("Database could not create table: %v", err)
+	// }
 
 	fmt.Println("Database ready")
 	fmt.Println("ASK Checker Running!")

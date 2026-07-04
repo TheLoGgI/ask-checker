@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 	"strings"
 
 	"github.com/caarlos0/env/v11"
@@ -23,7 +24,8 @@ func init() {
 	}
 
 	if Cfg.Database == "" {
-		if strings.EqualFold(Cfg.Environment, "production") {
+		isVercel := strings.EqualFold(os.Getenv("VERCEL"), "1") || strings.EqualFold(os.Getenv("VERCEL_ENV"), "production")
+		if strings.EqualFold(Cfg.Environment, "production") || isVercel {
 			Cfg.Database = "postgres"
 		} else {
 			Cfg.Database = "sqlite"
