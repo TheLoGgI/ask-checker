@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
@@ -75,8 +76,8 @@ func main() {
 	r.Get("/search", func(w http.ResponseWriter, r *http.Request) {
 
 		var query = r.URL.Query()
-		var isin = query.Get("isin")
-		var ticker = query.Get("ticker")
+		var isin = strings.ToUpper(strings.TrimSpace(query.Get("isin")))
+		var ticker = strings.ToUpper(strings.TrimSpace(query.Get("ticker")))
 
 		log.Printf("Searching for ISIN: '%s' Ticker: '%s'", isin, ticker)
 		if isin == "" && ticker == "" {
