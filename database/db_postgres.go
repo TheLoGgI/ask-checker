@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"log"
 	"log/slog"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -21,7 +23,24 @@ func connectPostgres() postgres {
 		log.Fatal("Missing Database URL ENV")
 	}
 
-	postgresDb, err := sql.Open("pgx", databaseURL)
+	parsedURL, err := url.Parse(databaseURL)
+	if err != nil {
+		log.Fatalf("Invalid DATABASE_URL: %v", err)
+	}
+
+	query := parsedURL.Query()
+	if query.Get("statement_cache_capacity") == "" {
+		query.Set("statement_cache_capacity", "0")
+	}
+
+	mode := strings.ToLower(query.Get("default_query_exec_mode"))
+	if mode == "" || mode == "cache_statement" {
+		// Required when statement cache is disabled.
+		query.Set("default_query_exec_mode", "exec")
+	}
+	parsedURL.RawQuery = query.Encode()
+
+	postgresDb, err := sql.Open("pgx", parsedURL.String())
 	if err != nil {
 		log.Fatalf("Failed to open postgres driver: %v", err)
 	}

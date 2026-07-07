@@ -53,7 +53,7 @@ func (s sqlite) Insert(query string, args ...any) error {
 }
 
 func (s sqlite) Query(query string, args ...any) (*sql.Rows, error) {
-	rows, err := s.db.Query(query, args)
+	rows, err := s.db.Query(query, args...)
 
 	return rows, err
 }

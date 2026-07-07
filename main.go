@@ -2,6 +2,7 @@ package main
 
 import (
 	"ask-checker/database"
+	structs "ask-checker/stucts"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -10,8 +11,8 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	_ "modernc.org/sqlite"
 )
@@ -35,6 +36,8 @@ func main() {
 	// if err = db.TableInit(); err != nil {
 	// 	log.Fatalf("Database could not create table: %v", err)
 	// }
+
+	// migrate_ticker(db)
 
 	fmt.Println("Database ready")
 	fmt.Println("ASK Checker Running!")
@@ -73,25 +76,38 @@ func main() {
 
 		var query = r.URL.Query()
 		var isin = query.Get("isin")
-		if isin == "" {
-			isin = query.Get("isni") // fallback for legacy param name
-		}
+		var ticker = query.Get("ticker")
 
-		log.Printf("Searching for ISIN: '%s'", isin)
-		if isin == "" {
-			http.Error(w, "Missing isin parameter", http.StatusBadRequest)
+		log.Printf("Searching for ISIN: '%s' Ticker: '%s'", isin, ticker)
+		if isin == "" && ticker == "" {
+			http.Error(w, "Missing isin or ticker parameter", http.StatusBadRequest)
 			return
 		}
 
-		// var lei = query.Get("lei")
-		// var tickerCode = query.Get("ticker")
-		var resultRow ask
-		selectSQL := "SELECT isin, name FROM ask_checker WHERE isin = ?"
-		if databaseType == "postgres" {
-			selectSQL = "SELECT isin, name FROM ask_checker WHERE isin = $1"
+		var resultRow structs.Ask
+		selectSQL := "SELECT isin, name, ticker FROM ask_checker WHERE isin = ?"
+		args := []any{isin}
+
+		if isin == "" {
+			selectSQL = "SELECT isin, name, ticker FROM ask_checker WHERE ticker = ?"
+			args = []any{ticker}
+		} else if ticker != "" {
+			selectSQL = "SELECT isin, name, ticker FROM ask_checker WHERE isin = ? OR ticker = ?"
+			args = []any{isin, ticker}
 		}
 
-		err := db.FindOne(selectSQL, isin).Scan(&resultRow.Isni, &resultRow.Name)
+		if databaseType == "postgres" {
+			selectSQL = "SELECT isin, name, ticker FROM ask_checker WHERE isin = $1"
+			if isin == "" {
+				selectSQL = "SELECT isin, name, ticker FROM ask_checker WHERE ticker = $1"
+				args = []any{ticker}
+			} else if ticker != "" {
+				selectSQL = "SELECT isin, name, ticker FROM ask_checker WHERE isin = $1 OR ticker = $2"
+				args = []any{isin, ticker}
+			}
+		}
+
+		err := db.FindOne(selectSQL, args...).Scan(&resultRow.Isin, &resultRow.Name, &resultRow.Ticker)
 		if err != nil {
 			log.Printf("Error: %v", err)
 			if errors.Is(err, sql.ErrNoRows) {
@@ -114,10 +130,4 @@ func main() {
 	if err := http.ListenAndServe(":"+port, r); err != nil {
 		log.Fatalf("HTTP server failed: %v", err)
 	}
-}
-
-type ask struct {
-	Isni string `json:"isni"`
-	Name string `json:"name"`
-	Lai  string `json:"lai"`
 }

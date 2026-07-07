@@ -4,7 +4,10 @@ Checking Danish ASK tax relations for Global ETF's
 
 ## Endpoints
 
-- /search - Query for checking ISIN ETFs on the Danish ASK list (`?isni=...`)
+- /search - Query ASK entries by ISIN and/or ticker.
+	- `?isin=...`
+	- `?ticker=...`
+	- `?isin=...&ticker=...`
 - /livez - Liveness endpoint
 - /readyz - Readiness endpoint (checks database connection)
 
@@ -37,6 +40,12 @@ go build .
 
 ```
 ./ask-checker.exe
+```
+
+## Run in locally
+
+```
+go run .
 ```
 
 ## Sources
